@@ -15,7 +15,7 @@ pipeline {
         ECR_DEV = "${ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/web-dev"
         ECR_PROD = "${ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/web-prod"
 
-        HELM_REPO = 'https://github.com/<snehaCodes276>/application-helm-charts.git'
+        HELM_REPO = 'https://github.com/snehaCodes276/application-helm-charts.git'
     }
 
     stages {
