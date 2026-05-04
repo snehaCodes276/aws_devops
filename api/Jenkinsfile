@@ -63,12 +63,14 @@ pipeline {
         }
 
         stage('Docker Build') {
-            steps {
-                sh '''
-                docker build -t api:${BUILD_NUMBER} .
-                '''
-            }
-        }
+    steps {
+        dir('api') {
+            sh '''
+            docker build -t api:${BUILD_NUMBER} .
+            '''
+                   }
+          }
+                              }
 
         stage('Push to ECR') {
             steps {
