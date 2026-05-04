@@ -44,9 +44,10 @@ pipeline {
               -Dsonar.projectKey=api \
               -Dsonar.sources=.
             '''
-        }
-    }
-}
+                                      }
+    
+         }
+                           }
 
         stage('OWASP Scan') {
             steps {
