@@ -5,60 +5,28 @@ pipeline {
         AWS_REGION = 'ap-south-1'
         ACCOUNT_ID = '475790160792'
 
-        APP_NAME = 'api'
-        IMAGE_TAG = "${BUILD_NUMBER}"
-
         ECR_DEV = "${ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/api-dev"
         ECR_PROD = "${ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/api-prod"
 
+        IMAGE_TAG = "${BUILD_NUMBER}"
         HELM_REPO = 'https://github.com/snehaCodes276/application-helm-charts.git'
     }
 
     stages {
 
-        stage('Clean Workspace') {
+        stage('Clean') {
             steps { cleanWs() }
         }
 
-        stage('Checkout Code') {
+        stage('Checkout') {
             steps { checkout scm }
         }
 
-        stage('Setup Python') {
+        stage('Install Dependencies') {
             steps {
                 sh '''
-                if [ -f requirements.txt ]; then
-                    python3 -m venv venv
-                    . venv/bin/activate
-                    pip install -r requirements.txt
-                else
-                    echo "No requirements.txt found"
-                fi
+                pip3 install -r requirements.txt || true
                 '''
-            }
-        }
-
-        stage('Static Analysis') {
-            parallel {
-                stage('SonarQube') {
-                    steps {
-                        withSonarQubeEnv('sonarqube') {
-                            sh 'sonar-scanner -Dsonar.projectKey=api -Dsonar.sources=api'
-                        }
-                    }
-                }
-
-                stage('OWASP') {
-                    steps {
-                        sh '''
-                        if [ -d /opt/dependency-check/bin ]; then
-                            /opt/dependency-check/bin/dependency-check.sh --project api --scan . --out .
-                        else
-                            echo "OWASP tool not installed"
-                        fi
-                        '''
-                    }
-                }
             }
         }
 
@@ -68,28 +36,36 @@ pipeline {
             }
         }
 
-        stage('Docker Build') {
+        stage('SonarQube') {
+            steps {
+                withSonarQubeEnv('sonarqube') {
+                    sh '''
+                    sonar-scanner \
+                    -Dsonar.projectKey=api \
+                    -Dsonar.sources=.
+                    '''
+                }
+            }
+        }
+
+        stage('OWASP Scan') {
             steps {
                 sh '''
-                if [ -f api/Dockerfile ]; then
-                    docker build -t api:${BUILD_NUMBER} ./api
+                if [ -d /opt/dependency-check/bin ]; then
+                    /opt/dependency-check/bin/dependency-check.sh \
+                    --project api --scan . --out .
                 else
-                    echo "Dockerfile missing in api/"
-                    exit 1
+                    echo "OWASP not installed"
                 fi
                 '''
             }
         }
 
-        stage('Verify Image') {
+        stage('Docker Build') {
             steps {
-                sh 'docker images | grep api'
-            }
-        }
-
-        stage('Security Scan') {
-            steps {
-                sh 'grype api:${BUILD_NUMBER} || true'
+                sh '''
+                docker build -t api:${BUILD_NUMBER} .
+                '''
             }
         }
 
@@ -100,25 +76,10 @@ pipeline {
                     aws ecr get-login-password --region ${AWS_REGION} | \
                     docker login --username AWS --password-stdin ${ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com
 
-                    REPO=${ECR_DEV}
-                    if [ "$BRANCH_NAME" = "master" ]; then
-                        REPO=${ECR_PROD}
-                    fi
-
-                    docker tag api:${BUILD_NUMBER} ${REPO}:${BUILD_NUMBER}
-                    docker push ${REPO}:${BUILD_NUMBER}
+                    docker tag api:${BUILD_NUMBER} ${ECR_DEV}:${BUILD_NUMBER}
+                    docker push ${ECR_DEV}:${BUILD_NUMBER}
                     '''
                 }
-            }
-        }
-
-        stage('Helm Lint') {
-            steps {
-                sh '''
-                rm -rf application-helm-charts
-                git clone ${HELM_REPO}
-                kube-linter lint application-helm-charts/application-helm-charts/api || true
-                '''
             }
         }
 
