@@ -16,7 +16,7 @@ pipeline {
 
     options {
         timestamps()
-        disableConcurrentBuilds()
+        timeout(time: 30, unit: 'MINUTES')
     }
 
     stages {
@@ -47,7 +47,7 @@ pipeline {
                         if npm run 2>&1 | grep -q "test"; then
                             npm test || true
                         else
-                            echo "No test script found in package.json"
+                            echo "⚠️ No test script found in package.json"
                         fi
                     '''
                 }
@@ -78,8 +78,7 @@ pipeline {
                     passwordVariable: 'AWS_SECRET_ACCESS_KEY'
                 )]) {
                     sh """
-                        aws ecr get-login-password --region ${AWS_REGION} | \\
-                            docker login --username AWS --password-stdin ${DOCKER_REGISTRY}
+                        aws ecr get-login-password --region ${AWS_REGION} | docker login --username AWS --password-stdin ${DOCKER_REGISTRY}
                         docker push ${ECR_PROD}:${IMAGE_TAG}
                     """
                 }
@@ -93,16 +92,18 @@ pipeline {
                     usernameVariable: 'AWS_ACCESS_KEY_ID',
                     passwordVariable: 'AWS_SECRET_ACCESS_KEY'
                 )]) {
-                    sh """
-                        # Update kubeconfig
+                    sh '''#!/bin/bash
+                        set -e
+                        echo "🔄 Updating kubeconfig..."
                         aws eks update-kubeconfig --region ${AWS_REGION} --name ${CLUSTER_NAME}
                         
-                        # Update deployment with new image
+                        echo "🚀 Updating deployment image..."
                         kubectl set image deployment/${DEPLOYMENT_NAME} ${CONTAINER_NAME}=${ECR_PROD}:${IMAGE_TAG} -n ${K8S_NAMESPACE}
                         
-                        # Wait for rollout to complete
+                        echo "⏳ Waiting for rollout..."
                         kubectl rollout status deployment/${DEPLOYMENT_NAME} -n ${K8S_NAMESPACE} --timeout=300s
-                    """
+                        echo "✅ Deployment completed"
+                    '''
                 }
             }
         }
@@ -113,11 +114,10 @@ pipeline {
             cleanWs()
         }
         success {
-            echo "✅ WEB MASTER DEPLOYED SUCCESSFULLY TO EKS (PROD)"
+            echo "✅ WEB MASTER DEPLOYED SUCCESSFULLY TO EKS (PROD) - Build #${BUILD_NUMBER}"
         }
         failure {
-            echo "❌ WEB MASTER PIPELINE FAILED"
-            // Optional: Add notification logic here (Slack, Email, etc.)
+            echo "❌ WEB MASTER PIPELINE FAILED - Build #${BUILD_NUMBER}"
         }
     }
 }
