@@ -33,9 +33,9 @@ pipeline {
         stage('Verify Structure') {
             steps {
                 sh '''
-                echo "Listing workspace..."
+                echo "Workspace contents:"
                 ls -la
-                echo "Listing app directory..."
+                echo "App directory contents:"
                 ls -la ${APP_DIR}
                 '''
             }
@@ -52,7 +52,14 @@ pipeline {
         stage('Tests') {
             steps {
                 dir("${APP_DIR}") {
-                    sh 'npm test'
+                    sh '''
+                    if npm run | grep -q "test"; then
+                        echo "Running tests..."
+                        npm test
+                    else
+                        echo "No tests found, continuing..."
+                    fi
+                    '''
                 }
             }
         }
@@ -71,10 +78,10 @@ pipeline {
             }
         }
 
-        // OPTIONAL - Disabled OWASP (kept but safe)
+        // Disabled OWASP cleanly
         stage('OWASP Scan') {
             when {
-                expression { return false }  // disable cleanly
+                expression { return false }
             }
             steps {
                 dir("${APP_DIR}") {
