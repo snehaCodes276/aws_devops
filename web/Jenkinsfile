@@ -4,30 +4,32 @@ pipeline {
     environment {
         AWS_REGION = 'ap-south-1'
         ACCOUNT_ID = '475790160792'
-
         ECR_PROD = "${ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/web-prod"
-
         IMAGE_TAG = "${BUILD_NUMBER}"
         APP_DIR = 'web'
-
         CLUSTER_NAME = 'DevSecOps-Cluster'
         K8S_NAMESPACE = 'default'
         DEPLOYMENT_NAME = 'web-prod'
         CONTAINER_NAME = 'web'
+        DOCKER_REGISTRY = "${ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com"
     }
 
     options {
         timestamps()
+        disableConcurrentBuilds()
     }
 
     stages {
-
         stage('Clean') {
-            steps { cleanWs() }
+            steps {
+                cleanWs()
+            }
         }
 
         stage('Checkout') {
-            steps { checkout scm }
+            steps {
+                checkout scm
+            }
         }
 
         stage('Install Dependencies') {
@@ -42,11 +44,11 @@ pipeline {
             steps {
                 dir("${APP_DIR}") {
                     sh '''
-                    if npm run | grep -q test; then
-                        npm test || true
-                    else
-                        echo "No tests found"
-                    fi
+                        if npm run 2>&1 | grep -q "test"; then
+                            npm test || true
+                        else
+                            echo "No test script found in package.json"
+                        fi
                     '''
                 }
             }
@@ -55,11 +57,7 @@ pipeline {
         stage('SonarQube') {
             steps {
                 withSonarQubeEnv('sonarqube') {
-                    sh """
-                    /opt/sonar-scanner/bin/sonar-scanner \
-                      -Dsonar.projectKey=web-prod \
-                      -Dsonar.sources=${APP_DIR}
-                    """
+                    sh "/opt/sonar-scanner/bin/sonar-scanner -Dsonar.projectKey=web-prod -Dsonar.sources=${APP_DIR}"
                 }
             }
         }
@@ -67,7 +65,7 @@ pipeline {
         stage('Docker Build') {
             steps {
                 dir("${APP_DIR}") {
-                    sh "docker build -t web:${IMAGE_TAG} ."
+                    sh "docker build -t web:${IMAGE_TAG} -t ${ECR_PROD}:${IMAGE_TAG} ."
                 }
             }
         }
@@ -79,16 +77,11 @@ pipeline {
                     usernameVariable: 'AWS_ACCESS_KEY_ID',
                     passwordVariable: 'AWS_SECRET_ACCESS_KEY'
                 )]) {
-                    sh '''
-                    export AWS_ACCESS_KEY_ID=$AWS_ACCESS_KEY_ID
-                    export AWS_SECRET_ACCESS_KEY=$AWS_SECRET_ACCESS_KEY
-
-                    aws ecr get-login-password --region ${AWS_REGION} | \
-                    docker login --username AWS --password-stdin ${ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com
-
-                    docker tag web:${IMAGE_TAG} ${ECR_PROD}:${IMAGE_TAG}
-                    docker push ${ECR_PROD}:${IMAGE_TAG}
-                    '''
+                    sh """
+                        aws ecr get-login-password --region ${AWS_REGION} | \\
+                            docker login --username AWS --password-stdin ${DOCKER_REGISTRY}
+                        docker push ${ECR_PROD}:${IMAGE_TAG}
+                    """
                 }
             }
         }
@@ -100,35 +93,31 @@ pipeline {
                     usernameVariable: 'AWS_ACCESS_KEY_ID',
                     passwordVariable: 'AWS_SECRET_ACCESS_KEY'
                 )]) {
-                    sh '''
-                    export AWS_ACCESS_KEY_ID=$AWS_ACCESS_KEY_ID
-                    export AWS_SECRET_ACCESS_KEY=$AWS_SECRET_ACCESS_KEY
-
-                    echo "Updating kubeconfig..."
-                    aws eks update-kubeconfig \
-                        --region ${AWS_REGION} \
-                        --name ${CLUSTER_NAME}
-
-                    echo "Updating deployment image..."
-                    kubectl set image deployment/${DEPLOYMENT_NAME} \
-                        ${CONTAINER_NAME}=${ECR_PROD}:${IMAGE_TAG} \
-                        -n ${K8S_NAMESPACE}
-
-                    echo "Waiting for rollout..."
-                    kubectl rollout status deployment/${DEPLOYMENT_NAME} \
-                        -n ${K8S_NAMESPACE}
-                    '''
+                    sh """
+                        # Update kubeconfig
+                        aws eks update-kubeconfig --region ${AWS_REGION} --name ${CLUSTER_NAME}
+                        
+                        # Update deployment with new image
+                        kubectl set image deployment/${DEPLOYMENT_NAME} ${CONTAINER_NAME}=${ECR_PROD}:${IMAGE_TAG} -n ${K8S_NAMESPACE}
+                        
+                        # Wait for rollout to complete
+                        kubectl rollout status deployment/${DEPLOYMENT_NAME} -n ${K8S_NAMESPACE} --timeout=300s
+                    """
                 }
             }
         }
     }
 
     post {
+        always {
+            cleanWs(onlyIfSuccessful: false)
+        }
         success {
             echo "✅ WEB MASTER DEPLOYED SUCCESSFULLY TO EKS (PROD)"
         }
         failure {
             echo "❌ WEB MASTER PIPELINE FAILED"
+            // Optional: Add notification logic here (Slack, Email, etc.)
         }
     }
 }
