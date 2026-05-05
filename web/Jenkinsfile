@@ -66,19 +66,17 @@ pipeline {
           }
                    }
 
-        stage('SonarQube') {
-            steps {
-                dir("${APP_DIR}") {
-                    withSonarQubeEnv('sonarqube') {
-                        sh '''
-                        sonar-scanner \
-                        -Dsonar.projectKey=web \
-                        -Dsonar.sources=.
-                        '''
-                    }
-                }
-            }
-        }
+       stage('SonarQube') {
+    steps {
+        withSonarQubeEnv('sonarqube') {
+            sh '''
+            /opt/sonar-scanner/bin/sonar-scanner \
+              -Dsonar.projectKey=api \
+              -Dsonar.sources=.
+            '''
+                                      }
+          }
+                          }
 
         // Disabled OWASP cleanly
         stage('OWASP Scan') {
