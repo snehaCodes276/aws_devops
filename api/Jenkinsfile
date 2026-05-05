@@ -5,13 +5,11 @@ pipeline {
         AWS_REGION = 'ap-south-1'
         ACCOUNT_ID = '475790160792'
 
-        ECR_DEV = "${ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/api-dev"
         ECR_PROD = "${ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/api-prod"
 
         IMAGE_TAG = "${BUILD_NUMBER}"
-        HELM_REPO = 'https://github.com/snehaCodes276/application-helm-charts.git'
     }
-    
+
     stages {
 
         stage('Clean') {
@@ -37,24 +35,23 @@ pipeline {
         }
 
         stage('SonarQube') {
-    steps {
-        withSonarQubeEnv('sonarqube') {
-            sh '''
-            /opt/sonar-scanner/bin/sonar-scanner \
-              -Dsonar.projectKey=api \
-              -Dsonar.sources=.
-            '''
-                                      }
-    
-         }
-                           }
+            steps {
+                withSonarQubeEnv('sonarqube') {
+                    sh '''
+                    /opt/sonar-scanner/bin/sonar-scanner \
+                      -Dsonar.projectKey=api-prod \
+                      -Dsonar.sources=.
+                    '''
+                }
+            }
+        }
 
         stage('OWASP Scan') {
             steps {
                 sh '''
                 if [ -d /opt/dependency-check/bin ]; then
                     /opt/dependency-check/bin/dependency-check.sh \
-                    --project api --scan . --out .
+                    --project api-prod --scan . --out .
                 else
                     echo "OWASP not installed"
                 fi
@@ -63,33 +60,31 @@ pipeline {
         }
 
         stage('Docker Build') {
-    steps {
-        dir('api') {
-            sh '''
-            docker build -t api:${BUILD_NUMBER} .
-            '''
-                   }
-          }
-                              }
+            steps {
+                dir('api') {
+                    sh '''
+                    docker build -t api:${BUILD_NUMBER} .
+                    '''
+                }
+            }
+        }
 
         stage('Push to ECR') {
-    steps {
-        withCredentials([usernamePassword(
-            credentialsId: 'aws-creds',
-            usernameVariable: 'AWS_ACCESS_KEY_ID',
-            passwordVariable: 'AWS_SECRET_ACCESS_KEY'
-        )]) {
-            sh '''
-            aws ecr get-login-password --region ${AWS_REGION} | \
-            docker login --username AWS --password-stdin ${ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com
+            steps {
+                withCredentials([usernamePassword(
+                    credentialsId: 'aws-creds',
+                    usernameVariable: 'AWS_ACCESS_KEY_ID',
+                    passwordVariable: 'AWS_SECRET_ACCESS_KEY'
+                )]) {
+                    sh '''
+                    aws ecr get-login-password --region ${AWS_REGION} | \
+                    docker login --username AWS --password-stdin ${ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com
 
-            docker tag api:${BUILD_NUMBER} ${ECR_DEV}:${BUILD_NUMBER}
-            docker push ${ECR_DEV}:${BUILD_NUMBER}
-            '''
+                    docker tag api:${BUILD_NUMBER} ${ECR_PROD}:${BUILD_NUMBER}
+                    docker push ${ECR_PROD}:${BUILD_NUMBER}
+                    '''
+                }
             }
-          } 
-                            }
-
-        
-     }
+        }
+    }
 }
