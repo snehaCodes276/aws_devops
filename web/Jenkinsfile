@@ -117,11 +117,7 @@ pipeline {
           }
                             }
 
-        stage('EKS Check') {
-            steps {
-                sh 'kubectl get nodes'
-            }
-        }
+       
     }
 
     post {
