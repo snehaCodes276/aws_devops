@@ -5,7 +5,7 @@ pipeline {
         AWS_REGION = 'ap-south-1'
         ACCOUNT_ID = '475790160792'
 
-        ECR_DEV = "${ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/web-dev"
+        ECR_PROD = "${ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/web-prod"
 
         IMAGE_TAG = "${BUILD_NUMBER}"
         APP_DIR = 'web'
@@ -32,10 +32,10 @@ pipeline {
         stage('Verify Structure') {
             steps {
                 sh '''
-                echo "Workspace:"
+                echo "Workspace contents:"
                 ls -la
 
-                echo "Web folder:"
+                echo "Web app contents:"
                 ls -la ${APP_DIR}
                 '''
             }
@@ -70,7 +70,7 @@ pipeline {
                 withSonarQubeEnv('sonarqube') {
                     sh '''
                     /opt/sonar-scanner/bin/sonar-scanner \
-                      -Dsonar.projectKey=web \
+                      -Dsonar.projectKey=web-prod \
                       -Dsonar.sources=web
                     '''
                 }
@@ -82,7 +82,7 @@ pipeline {
                 sh '''
                 if [ -d /opt/dependency-check/bin ]; then
                     /opt/dependency-check/bin/dependency-check.sh \
-                    --project web --scan web --out . || true
+                    --project web-prod --scan web --out . || true
                 else
                     echo "OWASP not installed"
                 fi
@@ -100,7 +100,7 @@ pipeline {
             }
         }
 
-        stage('Push to ECR') {
+        stage('Push to ECR (PROD)') {
             steps {
                 withCredentials([usernamePassword(
                     credentialsId: 'aws-creds',
@@ -111,8 +111,8 @@ pipeline {
                     aws ecr get-login-password --region ${AWS_REGION} | \
                     docker login --username AWS --password-stdin ${ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com
 
-                    docker tag web:${IMAGE_TAG} ${ECR_DEV}:${IMAGE_TAG}
-                    docker push ${ECR_DEV}:${IMAGE_TAG}
+                    docker tag web:${IMAGE_TAG} ${ECR_PROD}:${IMAGE_TAG}
+                    docker push ${ECR_PROD}:${IMAGE_TAG}
                     '''
                 }
             }
@@ -121,10 +121,10 @@ pipeline {
 
     post {
         success {
-            echo "✅ WEB pipeline SUCCESS"
+            echo "✅ WEB MASTER pipeline SUCCESS (PROD deployed)"
         }
         failure {
-            echo "❌ WEB pipeline FAILED"
+            echo "❌ WEB MASTER pipeline FAILED"
         }
     }
 }
