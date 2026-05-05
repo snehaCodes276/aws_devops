@@ -7,12 +7,15 @@ env:
 phases:
   install:
     commands:
-      - echo "Installing required tools..."
-      - yum install -y unzip wget
+      - echo "Installing dependencies..."
+      - yum install -y unzip wget tar
 
-      # Install Trivy (official method - NO 404 errors)
+      # Install Trivy (WORKING METHOD)
       - echo "Installing Trivy..."
-      - rpm -ivh https://github.com/aquasecurity/trivy/releases/latest/download/trivy_0.49.1_Linux-64bit.rpm
+      - wget https://github.com/aquasecurity/trivy/releases/download/v0.50.0/trivy_0.50.0_Linux-64bit.tar.gz
+      - tar -xzf trivy_0.50.0_Linux-64bit.tar.gz
+      - mv trivy /usr/local/bin/
+      - trivy --version
 
       # Install Sonar Scanner
       - echo "Installing Sonar Scanner..."
@@ -23,30 +26,26 @@ phases:
 
   pre_build:
     commands:
-      - echo "Logging into ECR..."
-
-      # FIX: requires IAM permission (I’ll tell below)
+      - echo "Logging in to ECR..."
       - aws ecr get-login-password --region $AWS_REGION | docker login --username AWS --password-stdin $AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com
 
-      - echo "Setting variables..."
+      - echo "Setting repo URI..."
       - REPO_URI=$AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/$ECR_REPO
 
   build:
     commands:
-      - echo "Running SonarQube Scan..."
-
-      # FIX: no "\" line break issue
+      - echo "Running SonarQube scan..."
       - sonar-scanner -Dsonar.projectKey=api -Dsonar.sources=. -Dsonar.host.url=$SONAR_HOST_URL -Dsonar.login=$SONAR_LOGIN
 
-      - echo "Building Docker Image..."
+      - echo "Building Docker image..."
       - docker build -t $REPO_URI:$IMAGE_TAG .
 
-      - echo "Running Trivy Scan..."
+      - echo "Running Trivy scan..."
       - trivy image --format json --output trivy-report.json $REPO_URI:$IMAGE_TAG || true
 
   post_build:
     commands:
-      - echo "Build completed"
+      - echo "Build completed successfully"
 
 artifacts:
   files:
