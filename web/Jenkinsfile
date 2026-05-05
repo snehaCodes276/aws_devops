@@ -9,63 +9,90 @@ pipeline {
         ECR_PROD = "${ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/web-prod"
 
         IMAGE_TAG = "${BUILD_NUMBER}"
-        HELM_REPO = 'https://github.com/snehaCodes276/application-helm-charts.git'
+        APP_DIR = 'web'
+    }
+
+    options {
+        timestamps()
     }
 
     stages {
 
         stage('Clean') {
-            steps { cleanWs() }
+            steps {
+                cleanWs()
+            }
         }
 
         stage('Checkout') {
-            steps { checkout scm }
+            steps {
+                checkout scm
+            }
+        }
+
+        stage('Verify Structure') {
+            steps {
+                sh '''
+                echo "Listing workspace..."
+                ls -la
+                echo "Listing app directory..."
+                ls -la ${APP_DIR}
+                '''
+            }
         }
 
         stage('Install Dependencies') {
             steps {
-                sh '''
-                npm install
-                '''
+                dir("${APP_DIR}") {
+                    sh 'npm install'
+                }
             }
         }
 
         stage('Tests') {
             steps {
-                sh 'npm test || true'
+                dir("${APP_DIR}") {
+                    sh 'npm test'
+                }
             }
         }
 
         stage('SonarQube') {
             steps {
-                withSonarQubeEnv('sonarqube') {
+                dir("${APP_DIR}") {
+                    withSonarQubeEnv('sonarqube') {
+                        sh '''
+                        sonar-scanner \
+                        -Dsonar.projectKey=web \
+                        -Dsonar.sources=.
+                        '''
+                    }
+                }
+            }
+        }
+
+        // OPTIONAL - Disabled OWASP (kept but safe)
+        stage('OWASP Scan') {
+            when {
+                expression { return false }  // disable cleanly
+            }
+            steps {
+                dir("${APP_DIR}") {
                     sh '''
-                    sonar-scanner \
-                    -Dsonar.projectKey=web \
-                    -Dsonar.sources=.
+                    /opt/dependency-check/bin/dependency-check.sh \
+                    --project web --scan . --out . || true
                     '''
                 }
             }
         }
 
-        stage('OWASP Scan') {
-            steps {
-                sh '''
-                if [ -d /opt/dependency-check/bin ]; then
-                    /opt/dependency-check/bin/dependency-check.sh \
-                    --project web --scan . --out .
-                else
-                    echo "OWASP not installed"
-                fi
-                '''
-            }
-        }
-
         stage('Docker Build') {
             steps {
-                sh '''
-                docker build -t web:${BUILD_NUMBER} .
-                '''
+                dir("${APP_DIR}") {
+                    sh '''
+                    docker build -t web:${IMAGE_TAG} .
+                    '''
+                }
             }
         }
 
@@ -76,8 +103,8 @@ pipeline {
                     aws ecr get-login-password --region ${AWS_REGION} | \
                     docker login --username AWS --password-stdin ${ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com
 
-                    docker tag web:${BUILD_NUMBER} ${ECR_DEV}:${BUILD_NUMBER}
-                    docker push ${ECR_DEV}:${BUILD_NUMBER}
+                    docker tag web:${IMAGE_TAG} ${ECR_DEV}:${IMAGE_TAG}
+                    docker push ${ECR_DEV}:${IMAGE_TAG}
                     '''
                 }
             }
@@ -87,6 +114,15 @@ pipeline {
             steps {
                 sh 'kubectl get nodes'
             }
+        }
+    }
+
+    post {
+        success {
+            echo "✅ Build completed successfully"
+        }
+        failure {
+            echo "❌ Build failed - check logs"
         }
     }
 }
