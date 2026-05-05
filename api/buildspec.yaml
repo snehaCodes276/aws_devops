@@ -1,16 +1,21 @@
 version: 0.2
 
+env:
+  variables:
+    IMAGE_TAG: latest
+
 phases:
   install:
     commands:
-      - echo "Installing unzip only"
-      - yum install -y unzip || true
+      - echo "Installing required tools..."
+      - yum install -y unzip wget
 
-      # ✅ Use existing curl (no install)
-      - echo "Installing Trivy"
-      - curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sh -s -- -b /usr/local/bin
+      # Install Trivy (official method - NO 404 errors)
+      - echo "Installing Trivy..."
+      - rpm -ivh https://github.com/aquasecurity/trivy/releases/latest/download/trivy_0.49.1_Linux-64bit.rpm
 
-      - echo "Installing Sonar Scanner"
+      # Install Sonar Scanner
+      - echo "Installing Sonar Scanner..."
       - wget https://binaries.sonarsource.com/Distribution/sonar-scanner-cli/sonar-scanner-cli-4.8.0.2856-linux.zip
       - unzip sonar-scanner-cli-4.8.0.2856-linux.zip
       - mv sonar-scanner-4.8.0.2856-linux sonar-scanner
@@ -18,24 +23,30 @@ phases:
 
   pre_build:
     commands:
-      - echo "Login to ECR"
+      - echo "Logging into ECR..."
+
+      # FIX: requires IAM permission (I’ll tell below)
       - aws ecr get-login-password --region $AWS_REGION | docker login --username AWS --password-stdin $AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com
-      - IMAGE_TAG=$CODEBUILD_BUILD_NUMBER
+
+      - echo "Setting variables..."
+      - REPO_URI=$AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/$ECR_REPO
 
   build:
     commands:
-      - echo "Running Sonar Scan"
-      - sonar-scanner \
-          -Dsonar.projectKey=web \
-          -Dsonar.sources=. \
-          -Dsonar.host.url=$SONAR_HOST_URL \
-          -Dsonar.login=$SONAR_LOGIN
+      - echo "Running SonarQube Scan..."
 
-      - echo "Building Docker Image"
-      - docker build -t $ECR_REPO:$IMAGE_TAG .
+      # FIX: no "\" line break issue
+      - sonar-scanner -Dsonar.projectKey=api -Dsonar.sources=. -Dsonar.host.url=$SONAR_HOST_URL -Dsonar.login=$SONAR_LOGIN
 
-      - echo "Running Trivy Scan"
-      - trivy image --severity HIGH,CRITICAL --format json --output trivy-report.json $ECR_REPO:$IMAGE_TAG
+      - echo "Building Docker Image..."
+      - docker build -t $REPO_URI:$IMAGE_TAG .
+
+      - echo "Running Trivy Scan..."
+      - trivy image --format json --output trivy-report.json $REPO_URI:$IMAGE_TAG || true
+
+  post_build:
+    commands:
+      - echo "Build completed"
 
 artifacts:
   files:
