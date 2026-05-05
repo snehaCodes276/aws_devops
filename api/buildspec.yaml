@@ -3,14 +3,13 @@ version: 0.2
 phases:
   install:
     commands:
-      - echo "Installing dependencies"
-      - yum install -y unzip curl
+      - echo "Installing unzip only"
+      - yum install -y unzip || true
 
-      # ✅ Trivy (FIXED)
+      # ✅ Use existing curl (no install)
       - echo "Installing Trivy"
       - curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sh -s -- -b /usr/local/bin
 
-      # Sonar Scanner
       - echo "Installing Sonar Scanner"
       - wget https://binaries.sonarsource.com/Distribution/sonar-scanner-cli/sonar-scanner-cli-4.8.0.2856-linux.zip
       - unzip sonar-scanner-cli-4.8.0.2856-linux.zip
